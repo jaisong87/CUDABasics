@@ -1,9 +1,10 @@
 #include<iostream>
 #include<iomanip>
+#include<cstdio>
 using namespace std;
 
 #define MIN(a,b) ( ((a)< (b))?(a):(b) )
-#define MAX 1024
+#define MAX 8192
 #define GE 1
 #define GI 2
 
@@ -13,7 +14,7 @@ int D[MAX][MAX], I[MAX][MAX], G[MAX][MAX];
 
 int S(int i, int j )
 {
-if(X[i] == Y[j]) return 1;
+if(X[i] != Y[j]) return 1;
 return 0;
 }
 
@@ -48,20 +49,21 @@ for(int i=0;i<N;i++)
 for(int i=1;i<N;i++)
 	for(int j=0;j<N;j++)
 		{
-			D[i][j] = MIN(D[i-1][j] , G[i-1][j] + GI )+GE;
+			if(i>0 && j>0) D[i][j] = MIN(D[i-1][j] , G[i-1][j] + GI )+GE;
 			
-			if(j>0) I[i][j] = MIN(I[i][j-1], G[i][j-1]+GI )+GE;
+			if(i>0 && j>0) I[i][j] = MIN(I[i][j-1], G[i][j-1]+GI )+GE;
 			
 			if(i>0 && j>0) { 
-				int tmp  = MIN(D[i][j], I[i][j]);
-				tmp = MIN(tmp, G[i-1][j-1]+S(i,j));
+				int mini  = MIN(D[i][j], I[i][j]);
+				int tmp = MIN(mini, G[i-1][j-1]+S(i,j));
 				G[i][j] = tmp;
+//			printf("Computed G[%d][%d] = %d from D[%d][%d] = %d, I[%d][%d] = %d, G[%d][%d] = %d, S[%d][%d] = %d \n" , i,j, G[i][j], i,j, D[i][j], i,j, I[i][j], i-1, j-1, G[i-1][j-1], i, j, S(i,j)); 
 				}
 		}
 
-print(D, "Matrix-D");
-print(I, "Matrix-I");
-print(G, "Matrix-G");
+//print(D, "Matrix-D");
+//print(I, "Matrix-I");
+//print(G, "Matrix-G");
 
 int best = MIN(I[N-1][N-1], G[N-1][N-1]);
 best = MIN(best, D[N-1][N-1]);
