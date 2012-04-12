@@ -1,7 +1,10 @@
 #include<stdio.h>
 #define CHECK_FOR_CORRECTNESS 1
 #define MIN(a,b) (( (a) < (b) )?(a):(b))
+#define GE 1
+#define GI 2
 
+/* Following section contains Kernel functions used by prefix sum */
 /*  Kernel Function1 - Initialize the array */
 __global__ void initializeArray(int* A, int* B, int N)
 {
@@ -9,7 +12,6 @@ int i = threadIdx.x;
 
 if(i<N) 
 	B[i] = A[i];
-printf("Setting B[%d] = %d , from A[%d] = %d\n", i, B[i], i, A[i]);
 }
 
 /* Kernel Function2 - PrefixOperations on B */
@@ -39,9 +41,8 @@ __global__ void copyArray(int* S, int* C, int N)
 {
 int i = threadIdx.x;
         S[i] = C[i];
-printf("Setting S[%d] = %d , from C[%d] = %d\n", i, S[i], i, C[i]);
+//printf("Setting S[%d] = %d , from C[%d] = %d\n", i, S[i], i, C[i]);
 }
-
 
 /* Just a somple function to get log to base 2*/
 int log2(int x)
@@ -50,7 +51,6 @@ int k = 0;
 while(x>>=1) k++;
 return k;
 }
-
 
 /* Compute prefix sum of A into B 
  * @param N - size of array A
@@ -107,63 +107,137 @@ cudaFree(d_C);
 return;
 }
 
+/* Set of Kernel Functions used in sequence alignment calculation */
+
+/* Kernel function to initialize d_G0, d_D0, d_I0 */
+__global__ void initFirstRow(int *d_D0,int * d_I0,  int *d_G0)
+{
+int i = threadIdx.x;
+d_G0[i] = GI + GE*i;
+d_D0[i] = GE*(i+1) + GI;
+if(0 == i) d_I0[i] = d_G0[i] + GE;
+}
+
+/* Kernel Function to update D from previous row */
+__global__ void updateD(int* d_D1, int* d_D0, int* d_G0)
+{
+ int j = threadIdx.x;	
+ d_D1[j] = MIN(d_D0[j] , d_G0[j] + GI )+GE;
+}
+
+/* Kernel Function to update array-U from currentD and previous G */
+__global__ void updateU(int* d_U , int* d_D1, int* d_G0, int i, char* d_X, char* d_Y)
+{
+ int j = threadIdx.x;	
+ if(j!=0)
+	{
+		int Sij;
+		if(d_X[i] == d_Y[j]) Sij = 0;
+		else Sij = 1;	
+		d_U[j] = MIN(d_D1[j], d_G0[j-1] + Sij);
+	}
+}
+
+/* Kernel Function to update array-V from array-U */
+__global__ void updateV(int* d_V, int* d_U)
+{
+ int j = threadIdx.x;	
+ if(j!=0)
+	{	
+		d_V[j] = d_U[j] + GI - j*GE;
+	}
+}
+
 
 /* Main function - All of the implementation is in main */
 int main()
 {
-int N = 64;
+int N;
+int blocksPerGrid, threadsPerBlock;
+char * X, *Y; /* char arrays in */
+char * d_X, *d_Y; /* Global so that everyone can access */
 
-/* Declare and Initialize host arrays A, B, S */
-int* h_A, *h_S, *h_B;
+/* Set of rows for matrices D, I, G and  arrays U, V  */
+/* Have two versions R0, R1 for every array and they are used interchangably in every iteration */
+int* d_D0, *d_D1, *d_I0, *d_I1, *d_G0, *d_G1, *d_U, *d_V, *d_S;
+
+scanf("%d",&N);
+size_t strSize = (N+1)*sizeof(char);
 size_t arrSize = N*sizeof(int);
-h_A = (int*)malloc(arrSize);
-h_B = (int*)malloc(2*arrSize);
-h_S = (int*)malloc(arrSize);
 
+X = (char*) malloc(strSize);
+Y = (char*) malloc(strSize);
+printf("Going to take input for string with size %d\n", N);
+scanf("%s", X);
+scanf("%s", Y);
 
-/* Declare and Initialize device arrays A, B, C, S */
-int *d_A, *d_S;
-cudaMalloc(&d_A, arrSize);
-cudaMalloc(&d_S, arrSize);
+printf("%s\n", X);
+printf("%s\n", Y);
 
-int seed = 1078989; int mod = 32768, step = 7986721;
+/* Declare and Initialize device arrays d_X, d_Y */
+cudaMalloc(&d_X, strSize );
+cudaMalloc(&d_Y, strSize );
 
-for(int i =0;i<N;i++)
-	{
-	h_A[i] = seed%mod;
-	seed+=step;
-	}
+cudaMalloc(&d_D0, arrSize );
+cudaMalloc(&d_D1, arrSize );
+cudaMalloc(&d_G0, arrSize );
+cudaMalloc(&d_G1, arrSize );
+cudaMalloc(&d_I0, arrSize );
+cudaMalloc(&d_I1, arrSize );
+cudaMalloc(&d_U, arrSize );
+cudaMalloc(&d_V, arrSize );
+cudaMalloc(&d_S, arrSize );
 
 /* Copy vectors from host memory to device memory */
-cudaMemcpy(d_A, h_A, arrSize, cudaMemcpyHostToDevice);
+cudaMemcpy(d_X, X, strSize , cudaMemcpyHostToDevice);
+cudaMemcpy(d_Y, Y, strSize , cudaMemcpyHostToDevice);
 
+/*Initialize set of rows d_G0, d_I0, d_D0 */
+blocksPerGrid = 1;
+threadsPerBlock = N;
+initFirstRow<<<blocksPerGrid, threadsPerBlock>>>(d_D0, d_I0, d_G0);
 
-#if 0
-#ifdef CHECK_FOR_CORRECTNESS
-for(int i1=0;i1<N;i1++)
-	printf("DBUG_0 %d \n", h_A[i1]);
-
-/* Checking for correctness */
-cudaMemcpy(h_B, d_B, 2*arrSize, cudaMemcpyDeviceToHost);
-for(int i=0;i<N;i++)
-	printf("DBUG_1  %d %d\n", h_A[i], h_B[i]);
-#endif
-#endif
-
-computePrefixSum(d_A, d_S, N);
-
-cudaMemcpy(h_S, d_S, arrSize, cudaMemcpyDeviceToHost);
-for(int i=0;i<N;i++)
-	printf("DBUG_2 %d %d\n", h_A[i], h_S[i]);
+/* For rows 1 to N calculate D, G, I from previous rows */
+for(int i=1;i<N;i++)
+	{
+	if(i%2 == 1) /* Odd rows */
+			{
+	updateD<<<blocksPerGrid, threadsPerBlock>>>(d_D1, d_D0, d_G0);								
+	updateU<<<blocksPerGrid, threadsPerBlock>>>(d_U , d_D1, d_G0, i, d_X, d_Y);
+	updateV<<<blocksPerGrid, threadsPerBlock>>>(d_V , d_U);
+	computePrefixSum(d_V, d_S, N);	
+			
+			}
+	else /*Even rows*/
+		{
+	updateD<<<blocksPerGrid, threadsPerBlock>>>(d_D0, d_D1, d_G1);								
+	updateU<<<blocksPerGrid, threadsPerBlock>>>(d_U , d_D0, d_G1, i, d_X, d_Y );
+	updateV<<<blocksPerGrid, threadsPerBlock>>>(d_V , d_U);
+	computePrefixSum(d_V, d_S, N);	
+		
+		}
+	}
 
 /*Done with calculations - Free Device memory */
-cudaFree(d_A);
+cudaFree(d_X);
+cudaFree(d_Y);
+
+cudaFree(d_G0);
+cudaFree(d_G1);
+cudaFree(d_I0);
+cudaFree(d_I1);
+cudaFree(d_D0);
+cudaFree(d_D1);
+cudaFree(d_V);
+cudaFree(d_U);
 cudaFree(d_S);
 
+printf("%s\n", X);
+printf("%s\n", Y);
+
 /* Free host memory */
-free(h_A);
-free(h_B);
-free(h_S);
+free(X);
+free(Y);
 
 return 0;
 }

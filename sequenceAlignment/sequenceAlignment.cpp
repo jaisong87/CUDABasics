@@ -1,6 +1,8 @@
 #include<stdio.h>
 #define CHECK_FOR_CORRECTNESS 1
 #define MIN(a,b) (( (a) < (b) )?(a):(b))
+#define GE 1
+#define GI 2
 
 /* Following section contains Kernel functions used by prefix sum */
 /*  Kernel Function1 - Initialize the array */
@@ -105,10 +107,20 @@ cudaFree(d_C);
 return;
 }
 
+/* Set of Kernel Functions used in sequence alignment calculation */
+/* Kernel function to initialize d_G0, d_D0, d_I0 */
+__global__ void initFirstRow(int *d_D0, int *d_G0)
+{
+int i = threadIdx.x;
+d_G0[i] = GI + GE*i;
+d_D0[i] = GE*(i+1) + GI;
+}
+
 /* Main function - All of the implementation is in main */
 int main()
 {
 int N;
+int blocksPerGrid, threadsPerBlock;
 char * X, *Y; /* char arrays in */
 char * d_X, *d_Y;
 
@@ -120,8 +132,12 @@ scanf("%d",&N);
 size_t strSize = (N+1)*sizeof(char);
 X = (char*) malloc(strSize);
 Y = (char*) malloc(strSize);
+printf("Going to take input for string with size %d\n", N);
 scanf("%s", X);
 scanf("%s", Y);
+
+printf("%s\n", X);
+printf("%s\n", Y);
 
 /* Declare and Initialize device arrays d_X, d_Y */
 cudaMalloc(&d_X, strSize );
@@ -132,10 +148,17 @@ cudaMemcpy(d_X, X, strSize , cudaMemcpyHostToDevice);
 cudaMemcpy(d_Y, Y, strSize , cudaMemcpyHostToDevice);
 
 /*Initialize set of rows d_G0, d_I0, d_D0 */
+blocksPerGrid = 1;
+threadsPerBlock = N;
+initFirstRow<<<blocksPerGrid, threadsPerBlock>>>(d_D0, d_G0);
+d_I0[0] = d_G0[0] + GE;
 
 /*Done with calculations - Free Device memory */
 cudaFree(d_X);
 cudaFree(d_Y);
+
+printf("%s\n", X);
+printf("%s\n", Y);
 
 /* Free host memory */
 free(X);

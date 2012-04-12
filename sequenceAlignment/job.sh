@@ -7,4 +7,4 @@
 #$ -o $JOB_NAME.out$JOB_ID   # specify stdout & stderr output
 #$ -q gpu                    # specify the GPU queue
 #$ -pe 1way 12               # request one node (the 12)
-./SEQAlign < "rand-32-in.txt"
+./SEQAlign < "tests/rand-32-in.txt"
